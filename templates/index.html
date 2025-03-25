@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cross-Signed Certificate Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Cross-Signed Certificate Generator</h1>
+            <p>Upload a PFX file or CSR with CA certificate to generate a cross-signed certificate</p>
+        </header>
+
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="alert">
+                    {% for message in messages %}
+                        <p>{{ message }}</p>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <div class="card">
+            <form action="{{ url_for('process_certificate') }}" method="post" enctype="multipart/form-data">
+                <div class="form-section">
+                    <h2>Certificate Signing Request</h2>
+                    
+                    <div class="form-group">
+                        <label for="csr_file">CSR File:</label>
+                        <input type="file" id="csr_file" name="csr_file" required>
+                    </div>
+                </div>
+                
+                <div class="form-section">
+                    <h2>Certificate Authority</h2>
+                    
+                    <div class="form-group">
+                        <label for="ca_input_method">CA Input Method:</label>
+                        <select id="ca_input_method" name="ca_input_method" onchange="toggleCAInputMethod()">
+                            <option value="separate">Separate Certificate & Key Files</option>
+                            <option value="pfx">PFX/P12 File</option>
+                        </select>
+                    </div>
+                    
+                    <div id="ca_separate_section" class="method-options">
+                        <div class="form-group">
+                            <label for="ca_cert">CA Certificate (PEM/CRT):</label>
+                            <input type="file" id="ca_cert" name="ca_cert">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="ca_key">CA Private Key:</label>
+                            <input type="file" id="ca_key" name="ca_key">
+                        </div>
+                    </div>
+                    
+                    <div id="ca_pfx_section" class="method-options" style="display: none;">
+                        <div class="form-group">
+                            <label for="ca_pfx">CA PFX/P12 File:</label>
+                            <input type="file" id="ca_pfx" name="ca_pfx">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="ca_password">CA Password:</label>
+                        <input type="password" id="ca_password" name="ca_password">
+                    </div>
+                </div>
+                
+                <div class="form-section">
+                    <h2>Certificate Options</h2>
+                    
+                    <div class="form-group">
+                        <label for="signing_method">Signing Method:</label>
+                        <select id="signing_method" name="signing_method" onchange="toggleSigningMethod()">
+                            <option value="x509">Standard Signing (x509)</option>
+                            <option value="ca">CA Signing with Config</option>
+                        </select>
+                    </div>
+                    
+                    <div id="standard_options" class="method-options">
+                        <div class="form-group">
+                            <label for="validity_days">Validity Period (days):</label>
+                            <input type="number" id="validity_days" name="validity_days" value="365" min="1" max="7320">
+                        </div>
+                    </div>
+                    
+                    <div id="ca_options" class="method-options" style="display: none;">
+                        <div class="form-group">
+                            <label for="ca_config">CA Configuration File:</label>
+                            <input type="file" id="ca_config" name="ca_config">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="ca_validity_days">Validity Period (days):</label>
+                            <input type="number" id="ca_validity_days" name="ca_validity_days" value="7320" min="1" max="7320">
+                        </div>
+                        
+                        <div class="form-group">
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="ca_batch" name="ca_batch" checked>
+                                <label for="ca_batch">Batch Mode (Non-interactive)</label>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="ca_notext" name="ca_notext" checked>
+                                <label for="ca_notext">No Text (Omit text form of certificate)</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn primary">Generate Cross-Signed Certificate</button>
+                </div>
+            </form>
+        </div>
+        
+        <footer>
+            <p>This tool processes certificates securely in your browser. No data is stored permanently.</p>
+        </footer>
+    </div>
+
+    <script>
+        function toggleInputMethod() {
+            const pfxMethod = document.getElementById('method_pfx').checked;
+            const pfxSection = document.getElementById('pfx_section');
+            const csrSection = document.getElementById('csr_section');
+            const pfxFile = document.getElementById('pfx_file');
+            const csrFile = document.getElementById('csr_file');
+            
+            if (pfxMethod) {
+                pfxSection.style.display = 'block';
+                csrSection.style.display = 'none';
+                pfxFile.setAttribute('required', '');
+                csrFile.removeAttribute('required');
+            } else {
+                pfxSection.style.display = 'none';
+                csrSection.style.display = 'block';
+                pfxFile.removeAttribute('required');
+                csrFile.setAttribute('required', '');
+            }
+        }
+        
+        function toggleSigningMethod() {
+            const signingMethod = document.getElementById('signing_method').value;
+            const standardOptions = document.getElementById('standard_options');
+            const caOptions = document.getElementById('ca_options');
+            const caConfig = document.getElementById('ca_config');
+            
+            if (signingMethod === 'x509') {
+                standardOptions.style.display = 'block';
+                caOptions.style.display = 'none';
+                caConfig.removeAttribute('required');
+            } else {
+                standardOptions.style.display = 'none';
+                caOptions.style.display = 'block';
+                caConfig.setAttribute('required', '');
+            }
+        }
+        
+        function toggleCAInputMethod() {
+            const caInputMethod = document.getElementById('ca_input_method').value;
+            const caSeparateSection = document.getElementById('ca_separate_section');
+            const caPfxSection = document.getElementById('ca_pfx_section');
+            const caCert = document.getElementById('ca_cert');
+            const caKey = document.getElementById('ca_key');
+            const caPfx = document.getElementById('ca_pfx');
+            
+            if (caInputMethod === 'separate') {
+                caSeparateSection.style.display = 'block';
+                caPfxSection.style.display = 'none';
+                caCert.setAttribute('required', '');
+                caKey.setAttribute('required', '');
+                caPfx.removeAttribute('required');
+            } else {
+                caSeparateSection.style.display = 'none';
+                caPfxSection.style.display = 'block';
+                caCert.removeAttribute('required');
+                caKey.removeAttribute('required');
+                caPfx.setAttribute('required', '');
+            }
+        }
+    </script>
+</body>
+</html>

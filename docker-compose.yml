@@ -1,0 +1,10 @@
+version: '3'
+
+services:
+  certificate-app:
+    build: .
+    ports:
+      - "5001:5000"
+    volumes:
+      - ./results:/app/results
+    restart: unless-stopped
