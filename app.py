@@ -1,3 +1,38 @@
+def ensure_proper_pem_format(input_path, output_path):
+    """Ensure proper PEM format by explicitly converting through OpenSSL"""
+    try:
+        # Check if input file exists
+        if not os.path.exists(input_path):
+            app.logger.error(f"Input file not found: {input_path}")
+            return False
+            
+        # Convert to proper PEM format
+        cmd = [
+            'openssl', 'x509',
+            '-in', input_path,
+            '-out', output_path,
+            '-outform', 'PEM'
+        ]
+        
+        subprocess.run(cmd, check=True)
+        
+        # Verify the file is in proper PEM format
+        with open(output_path, 'r') as f:
+            content = f.read()
+            
+        # Check for PEM begin and end markers
+        if not ('-----BEGIN CERTIFICATE-----' in content and '-----END CERTIFICATE-----' in content):
+            app.logger.error(f"Generated file is not in proper PEM format: {output_path}")
+            return False
+            
+        return True
+    except subprocess.CalledProcessError as e:
+        app.logger.error(f"OpenSSL error during PEM conversion: {e.stderr if hasattr(e, 'stderr') else str(e)}")
+        return False
+    except Exception as e:
+        app.logger.error(f"Error ensuring PEM format: {str(e)}")
+        return False
+
 import os
 import uuid
 import subprocess
@@ -129,8 +164,8 @@ def process_certificate():
         else:
             validity_days = request.form.get('ca_validity_days', '7320')
     
-        # Output path for cross-signed certificate
-        output_filename = f"cross-signed-{session_id}.crt"
+        # Output path for cross-signed certificate (as PEM format)
+        output_filename = f"cross-signed-{session_id}.pem"
         output_path = os.path.join(app.config['RESULT_FOLDER'], output_filename)
         
         # Process CSR input
@@ -205,6 +240,18 @@ def process_certificate():
                 ca_batch,
                 ca_notext
             )
+        
+        # Final verification of PEM format
+        if process_result:
+            temp_verified_path = os.path.join(session_dir, 'verified.pem')
+            verify_result = ensure_proper_pem_format(output_path, temp_verified_path)
+            
+            if verify_result:
+                # Replace the output with the verified version
+                import shutil
+                shutil.move(temp_verified_path, output_path)
+            else:
+                process_result = False
         
         if process_result:
             # Clean up uploaded files
@@ -281,7 +328,8 @@ def process_pfx(pfx_path, pfx_password, ca_cert_path, ca_key_path, ca_password, 
             '-CAkey', ca_key_path,
             '-CAcreateserial',
             '-out', output_path,
-            '-days', validity_days
+            '-days', validity_days,
+            '-outform', 'PEM'  # Explicitly specify PEM output format
         ]
         
         if ca_password:
@@ -304,8 +352,11 @@ def download_result(filename):
     return render_template('download.html', filename=filename)
 
 def process_csr(csr_path, ca_cert_path, ca_key_path, ca_password, output_path, validity_days):
-    """Process a CSR file and generate a cross-signed certificate using x509"""
+    """Process a CSR file and generate a cross-signed certificate using x509 in PEM format"""
     try:
+        # Create a temporary file for the initial certificate
+        temp_cert = os.path.join(os.path.dirname(output_path), 'temp_cert.der')
+        
         # Cross-sign the CSR
         cmd = [
             'openssl', 'x509', '-req',
@@ -313,7 +364,7 @@ def process_csr(csr_path, ca_cert_path, ca_key_path, ca_password, output_path, v
             '-CA', ca_cert_path,
             '-CAkey', ca_key_path,
             '-CAcreateserial',
-            '-out', output_path,
+            '-out', temp_cert,
             '-days', validity_days
         ]
         
@@ -322,13 +373,44 @@ def process_csr(csr_path, ca_cert_path, ca_key_path, ca_password, output_path, v
             
         subprocess.run(cmd, check=True)
         
+        # Explicitly convert to PEM format
+        convert_cmd = [
+            'openssl', 'x509',
+            '-in', temp_cert,
+            '-out', output_path,
+            '-outform', 'PEM'
+        ]
+        
+        subprocess.run(convert_cmd, check=True)
+        
+        # Verify the PEM format
+        verify_cmd = [
+            'openssl', 'x509',
+            '-in', output_path,
+            '-inform', 'PEM',
+            '-noout',
+            '-text'
+        ]
+        
+        verify_result = subprocess.run(verify_cmd, capture_output=True, text=True)
+        if verify_result.returncode != 0:
+            app.logger.error(f"PEM verification failed: {verify_result.stderr}")
+            return False
+            
+        # Remove temporary file
+        if os.path.exists(temp_cert):
+            os.remove(temp_cert)
+            
         return True
     except subprocess.CalledProcessError as e:
         app.logger.error(f"OpenSSL error: {e.stderr if hasattr(e, 'stderr') else str(e)}")
         return False
+    except Exception as e:
+        app.logger.error(f"Error in CSR processing: {str(e)}")
+        return False
 
 def process_csr_with_ca(csr_path, ca_cert_path, ca_key_path, ca_password, ca_config_path, output_path, validity_days, batch=True, notext=True):
-    """Process a CSR file using openssl ca command with config file"""
+    """Process a CSR file using openssl ca command with config file to produce a PEM certificate"""
     try:
         # Create working directory for CA operations
         ca_dir = os.path.dirname(ca_config_path)
